@@ -1,5 +1,8 @@
 import base64
+import time
+
 import streamlit as st
+
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -22,6 +25,58 @@ from journal import (
 load_dotenv()
 
 client = OpenAI()
+
+
+# =========================================================
+# OPENAI RETRY FUNCTION
+# =========================================================
+
+def call_openai_with_retry(
+    input_data,
+    max_output_tokens,
+    max_retries=3
+):
+    """
+    Calls OpenAI with retry handling for temporary
+    rate-limit errors.
+    """
+
+    last_error = None
+
+    for attempt in range(max_retries + 1):
+
+        try:
+
+            return client.responses.create(
+                model="gpt-6-luna",
+                input=input_data,
+                max_output_tokens=max_output_tokens
+            )
+
+        except Exception as e:
+
+            last_error = e
+
+            error_text = str(e).lower()
+
+            is_rate_limit = (
+                "429" in error_text
+                or "rate_limit" in error_text
+                or "rate limit" in error_text
+                or "too many requests" in error_text
+            )
+
+            if not is_rate_limit:
+                raise
+
+            if attempt >= max_retries:
+                raise
+
+            wait_time = 2 ** attempt
+
+            time.sleep(wait_time)
+
+    raise last_error
 
 
 # =========================================================
@@ -251,8 +306,13 @@ if page == "Trade Analysis":
 
     if screenshot is not None:
 
-        st.session_state.screenshot_bytes = screenshot.getvalue()
-        st.session_state.screenshot_type = screenshot.type
+        st.session_state.screenshot_bytes = (
+            screenshot.getvalue()
+        )
+
+        st.session_state.screenshot_type = (
+            screenshot.type
+        )
 
 
     # =====================================================
@@ -288,7 +348,13 @@ if page == "Trade Analysis":
 
     timeframe = st.selectbox(
         "Execution Timeframe",
-        ["15M", "M30", "H1", "H4", "Daily"],
+        [
+            "15M",
+            "M30",
+            "H1",
+            "H4",
+            "Daily"
+        ],
         key="timeframe"
     )
 
@@ -499,6 +565,7 @@ Entry Confirmation Selected By Trader:
 {entry_confirmation}
 
 IMPORTANT:
+
 Treat the above as information provided by the trader,
 not independently verified facts.
 
@@ -511,9 +578,8 @@ say that it cannot be verified.
 Do not invent missing market information.
 """
 
-                    response = client.responses.create(
-                        model="gpt-6-luna",
-                        input=[
+                    response = call_openai_with_retry(
+                        input_data=[
                             {
                                 "role": "user",
                                 "content": [
@@ -527,7 +593,8 @@ Do not invent missing market information.
                                     }
                                 ]
                             }
-                        ]
+                        ],
+                        max_output_tokens=2500
                     )
 
                     st.session_state.analysis = (
@@ -535,11 +602,17 @@ Do not invent missing market information.
                     )
 
                     st.session_state.analysed_trade = {
+
                         "direction": direction,
+
                         "entry": entry,
+
                         "stop_loss": sl,
+
                         "take_profit": tp,
+
                         "timeframe": timeframe,
+
                         "reason": reason
                     }
 
@@ -551,9 +624,25 @@ Do not invent missing market information.
 
                 except Exception as e:
 
-                    st.error(
-                        f"AI analysis failed: {str(e)}"
-                    )
+                    error_text = str(e).lower()
+
+                    if (
+                        "429" in error_text
+                        or "rate_limit" in error_text
+                        or "rate limit" in error_text
+                    ):
+
+                        st.warning(
+                            "⚠️ AI is temporarily busy. "
+                            "Please wait a little and try again."
+                        )
+
+                    else:
+
+                        st.error(
+                            "AI analysis could not be completed. "
+                            "Please try again."
+                        )
 
 
     # =====================================================
@@ -757,18 +846,22 @@ elif page == "Trade Journal":
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
+
                     st.write("**Entry**")
                     st.write(entry)
 
                 with col2:
+
                     st.write("**Stop Loss**")
                     st.write(sl)
 
                 with col3:
+
                     st.write("**Take Profit**")
                     st.write(tp)
 
                 with col4:
+
                     st.write("**Timeframe**")
                     st.write(timeframe)
 
@@ -1261,11 +1354,9 @@ elif page == "Dashboard":
                     )
                 )
 
-                pattern_response = (
-                    client.responses.create(
-                        model="gpt-6-luna",
-                        input=pattern_prompt
-                    )
+                pattern_response = call_openai_with_retry(
+                    input_data=pattern_prompt,
+                    max_output_tokens=1800
                 )
 
                 st.session_state.pattern_analysis = (
@@ -1274,9 +1365,24 @@ elif page == "Dashboard":
 
             except Exception as e:
 
-                st.error(
-                    f"AI pattern analysis failed: {str(e)}"
-                )
+                error_text = str(e).lower()
+
+                if (
+                    "429" in error_text
+                    or "rate_limit" in error_text
+                    or "rate limit" in error_text
+                ):
+
+                    st.warning(
+                        "⚠️ AI is temporarily busy. "
+                        "Please wait a little and try again."
+                    )
+
+                else:
+
+                    st.error(
+                        "AI pattern analysis could not be completed."
+                    )
 
 
     if st.session_state.pattern_analysis:
