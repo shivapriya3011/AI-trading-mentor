@@ -37,7 +37,6 @@ if not gemini_api_key:
     st.error("GEMINI_API_KEY is not configured.")
     st.stop()
 
-# Gemini client initialization
 client = genai.Client(api_key=gemini_api_key)
 
 
@@ -46,7 +45,10 @@ client = genai.Client(api_key=gemini_api_key)
 # =========================================================
 
 def prepare_trade_image(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
+
+    image = Image.open(
+        io.BytesIO(image_bytes)
+    )
 
     if image.mode != "RGB":
         image = image.convert("RGB")
@@ -54,7 +56,10 @@ def prepare_trade_image(image_bytes):
     max_dimension = 1280
 
     if max(image.width, image.height) > max_dimension:
-        image.thumbnail((max_dimension, max_dimension))
+
+        image.thumbnail(
+            (max_dimension, max_dimension)
+        )
 
     output = io.BytesIO()
 
@@ -69,23 +74,54 @@ def prepare_trade_image(image_bytes):
 
 
 # =========================================================
-# GEMINI SAFE REQUEST WITH RETRY
+# GEMINI SAFE REQUEST
+# MODEL FALLBACK + RETRY
 # =========================================================
 
 def call_gemini_with_retry(
     contents,
-    max_retries=3
+    max_retries=2
 ):
+
     """
-    Safely call Gemini API using google-genai client.
+    Gemini API request with automatic model fallback.
+
+    Primary:
+        gemini-3.8-flash
+
+    Fallback:
+        gemini-3.7-flash
+        gemini-3.6-flash
+        gemini-3.5-flash
+        gemini-3.5-flash-lite
     """
 
-    # UPDATED GEMINI MODEL
     models_to_try = [
-        "gemini-3.8-flash"
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite"
     ]
 
     last_error = None
+
+    retryable_errors = [
+        "503",
+        "unavailable",
+        "high demand",
+        "overloaded",
+        "resource_exhausted",
+        "rate limit",
+        "too many requests",
+        "deadline_exceeded",
+        "429",
+        "500",
+        "502",
+        "504",
+        "internal",
+        "temporarily unavailable"
+    ]
 
     for model_name in models_to_try:
 
@@ -99,49 +135,58 @@ def call_gemini_with_retry(
                 )
 
                 if response and response.text:
+
                     return response.text
 
                 last_error = RuntimeError(
-                    "Gemini returned an empty response."
+                    f"{model_name} returned an empty response."
                 )
 
             except Exception as e:
 
                 last_error = e
+
                 error_text = str(e).lower()
 
                 is_retryable = any(
                     err in error_text
-                    for err in [
-                        "503",
-                        "unavailable",
-                        "overloaded",
-                        "resource_exhausted",
-                        "rate limit",
-                        "too many requests",
-                        "deadline_exceeded",
-                        "429",
-                        "500",
-                        "502",
-                        "504"
-                    ]
+                    for err in retryable_errors
                 )
 
-                if is_retryable:
+                # ---------------------------------------------
+                # NON-RETRYABLE ERROR
+                # ---------------------------------------------
 
-                    wait_time = (2 ** attempt) + 1
-                    time.sleep(wait_time)
-                    continue
-
-                else:
+                if not is_retryable:
 
                     raise RuntimeError(
-                        f"Gemini API error: {str(e)}"
+                        f"Gemini API error using "
+                        f"{model_name}: {str(e)}"
                     )
+
+                # ---------------------------------------------
+                # RETRY SAME MODEL
+                # ---------------------------------------------
+
+                if attempt < max_retries - 1:
+
+                    wait_time = 2 ** attempt
+
+                    time.sleep(wait_time)
+
+                    continue
+
+                # ---------------------------------------------
+                # MODEL FAILED
+                # MOVE TO NEXT MODEL
+                # ---------------------------------------------
+
+                break
 
     raise RuntimeError(
         "AI_SERVICE_TEMPORARILY_UNAVAILABLE: "
-        f"All models failed. Last error: {last_error}"
+        "All Gemini models failed. "
+        f"Last error: {last_error}"
     )
 
 
@@ -568,7 +613,11 @@ IMPORTANT:
 Compare these details with the uploaded screenshot
 and the trader's strategy reference.
 
-Provide constructive, structured feedback.
+Do not blindly accept the trader's selected options.
+If the screenshot contradicts the selected option,
+clearly mention it.
+
+Do not invent missing information.
 """
 
                 request_key = hashlib.sha256(
