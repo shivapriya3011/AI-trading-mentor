@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import time
+import os
 
 import streamlit as st
 from PIL import Image
@@ -27,8 +28,12 @@ from journal import (
 
 load_dotenv()
 
-# Gemini client initialization
-client = genai.Client()
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key and "GEMINI_API_KEY" in st.secrets:
+    gemini_api_key = st.secrets["GEMINI_API_KEY"]
+
+# Gemini client initialization with key
+client = genai.Client(api_key=gemini_api_key)
 
 
 # =========================================================
@@ -63,7 +68,7 @@ def call_gemini_with_retry(
     Safely call Gemini API using the new google-genai client with proper fallbacks.
     """
     models_to_try = [
-        "gemini-2.5-flash",
+        "gemini-2.0-flash",
         "gemini-1.5-flash"
     ]
     
