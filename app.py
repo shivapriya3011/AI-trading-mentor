@@ -67,7 +67,6 @@ def call_gemini_with_retry(
 
     for attempt in range(max_retries + 1):
         try:
-            # Using gemini-2.5-flash for fast and accurate multimodal trade analysis
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=contents
@@ -86,7 +85,6 @@ def call_gemini_with_retry(
             )
 
             if not is_rate_limit and attempt == 0:
-                # If it's not a rate limit, raise immediately on first try or let it retry if network hiccup
                 raise e
 
             if attempt >= max_retries:
@@ -213,7 +211,9 @@ if page == "Trade Analysis":
     entry = st.number_input("Entry Price", min_value=0.0, format="%.3f", key="entry")
     sl = st.number_input("Stop Loss", min_value=0.0, format="%.3f", key="sl")
     tp = st.number_input("Take Profit", min_value=0.0, format="%.3f", key="tp")
-    timeframe = st.selectbox("Execution Timeframe", ["15M", "M30", "H1", "H4", "Daily"], key="timeframe")
+    
+    # Added M20 to execution timeframes list
+    timeframe = st.selectbox("Execution Timeframe", ["15M", "M20", "M30", "H1", "H4", "Daily"], key="timeframe")
 
     st.subheader("Strategy Context")
     trading_session = st.selectbox("Trading Session", ["Asian", "Mid Asian → London Open", "Pre-New York → New York", "Other / Not sure"], key="trading_session")
@@ -246,7 +246,6 @@ if page == "Trade Analysis":
         else:
             st.session_state.analysis_running = True
             try:
-                # Prepare image for Gemini
                 processed_img_bytes = prepare_trade_image(st.session_state.screenshot_bytes)
                 img_part = types.Part.from_bytes(
                     data=processed_img_bytes,
@@ -284,7 +283,6 @@ Compare these details with the uploaded screenshot and the trader's strategy ref
                 if request_key in st.session_state.analysis_cache:
                     analysis_text = st.session_state.analysis_cache[request_key]
                 else:
-                    # Pass both text prompt and image part to Gemini
                     analysis_text = call_gemini_with_retry([prompt, img_part])
                     st.session_state.analysis_cache[request_key] = analysis_text
 
