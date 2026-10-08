@@ -68,7 +68,7 @@ def call_gemini_with_retry(
     Safely call Gemini API using the new google-genai client with proper fallbacks.
     """
     models_to_try = [
-        "gemini-2.0-flash"
+        "gemini-2.5-flash"
     ]
     
     last_error = None
