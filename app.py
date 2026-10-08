@@ -68,7 +68,7 @@ def call_gemini_with_retry(
     for attempt in range(max_retries + 1):
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=contents
             )
             return response.text
@@ -212,7 +212,6 @@ if page == "Trade Analysis":
     sl = st.number_input("Stop Loss", min_value=0.0, format="%.3f", key="sl")
     tp = st.number_input("Take Profit", min_value=0.0, format="%.3f", key="tp")
     
-    # Added M20 to execution timeframes list
     timeframe = st.selectbox("Execution Timeframe", ["15M", "M20", "M30", "H1", "H4", "Daily"], key="timeframe")
 
     st.subheader("Strategy Context")
