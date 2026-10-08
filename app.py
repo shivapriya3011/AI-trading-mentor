@@ -1,8 +1,11 @@
 import base64
+import hashlib
+import io
 import time
 
 import streamlit as st
 
+from PIL import Image
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -28,30 +31,78 @@ client = OpenAI()
 
 
 # =========================================================
-# OPENAI RETRY FUNCTION
+# IMAGE PREPARATION
+# =========================================================
+
+def prepare_trade_image(image_bytes):
+
+    image = Image.open(
+        io.BytesIO(image_bytes)
+    )
+
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    max_dimension = 1280
+
+    if max(
+        image.width,
+        image.height
+    ) > max_dimension:
+
+        image.thumbnail(
+            (
+                max_dimension,
+                max_dimension
+            )
+        )
+
+    output = io.BytesIO()
+
+    image.save(
+        output,
+        format="JPEG",
+        quality=75,
+        optimize=True
+    )
+
+    return output.getvalue()
+
+
+# =========================================================
+# OPENAI SAFE REQUEST
 # =========================================================
 
 def call_openai_with_retry(
     input_data,
     max_output_tokens,
-    max_retries=3
+    max_retries=6
 ):
     """
-    Calls OpenAI with retry handling for temporary
-    rate-limit errors.
+    Safely call OpenAI.
+
+    Handles temporary rate limits using
+    exponential backoff.
+
+    The function does not immediately expose
+    429 errors to the user.
     """
 
     last_error = None
 
-    for attempt in range(max_retries + 1):
+    for attempt in range(
+        max_retries + 1
+    ):
 
         try:
 
-            return client.responses.create(
+            response = client.responses.create(
                 model="gpt-6-luna",
                 input=input_data,
                 max_output_tokens=max_output_tokens
             )
+
+            return response
 
         except Exception as e:
 
@@ -70,13 +121,23 @@ def call_openai_with_retry(
                 raise
 
             if attempt >= max_retries:
-                raise
+                break
 
-            wait_time = 2 ** attempt
+            # Increasing wait time:
+            # 2, 4, 8, 16, 32, 64 seconds
+            wait_time = min(
+                2 ** attempt,
+                60
+            )
 
-            time.sleep(wait_time)
+            time.sleep(
+                wait_time
+            )
 
-    raise last_error
+    # Do not expose raw OpenAI error.
+    raise RuntimeError(
+        "AI_SERVICE_TEMPORARILY_UNAVAILABLE"
+    )
 
 
 # =========================================================
@@ -114,6 +175,18 @@ if "page" not in st.session_state:
 
 if "analysed_trade" not in st.session_state:
     st.session_state.analysed_trade = None
+
+# Cache completed trade analyses
+if "analysis_cache" not in st.session_state:
+    st.session_state.analysis_cache = {}
+
+# Prevent duplicate analysis requests
+if "analysis_running" not in st.session_state:
+    st.session_state.analysis_running = False
+
+# Cache pattern analysis
+if "pattern_cache" not in st.session_state:
+    st.session_state.pattern_cache = {}
 
 
 # =========================================================
@@ -249,7 +322,9 @@ st.markdown(
 # SIDEBAR
 # =========================================================
 
-st.sidebar.title("📈 AI Trading Mentor")
+st.sidebar.title(
+    "📈 AI Trading Mentor"
+)
 
 page = st.sidebar.radio(
     "Navigation",
@@ -262,7 +337,9 @@ page = st.sidebar.radio(
         "Trade Analysis",
         "Trade Journal",
         "Dashboard"
-    ].index(st.session_state.page)
+    ].index(
+        st.session_state.page
+    )
 )
 
 st.session_state.page = page
@@ -275,7 +352,9 @@ st.session_state.page = page
 if page == "Trade Analysis":
 
     st.markdown(
-        '<h1 style="text-align:center;">📈 AI Trading Mentor</h1>',
+        '<h1 style="text-align:center;">'
+        '📈 AI Trading Mentor'
+        '</h1>',
         unsafe_allow_html=True
     )
 
@@ -291,7 +370,9 @@ if page == "Trade Analysis":
         unsafe_allow_html=True
     )
 
-    st.subheader("Trade Details")
+    st.subheader(
+        "Trade Details"
+    )
 
 
     # =====================================================
@@ -300,19 +381,35 @@ if page == "Trade Analysis":
 
     screenshot = st.file_uploader(
         "Upload Trade Screenshot",
-        type=["png", "jpg", "jpeg"],
+        type=[
+            "png",
+            "jpg",
+            "jpeg"
+        ],
         key="trade_screenshot"
     )
 
     if screenshot is not None:
 
-        st.session_state.screenshot_bytes = (
-            screenshot.getvalue()
-        )
+        new_screenshot = screenshot.getvalue()
 
-        st.session_state.screenshot_type = (
-            screenshot.type
-        )
+        # Only reset analysis when screenshot actually changes
+        if (
+            st.session_state.screenshot_bytes
+            != new_screenshot
+        ):
+
+            st.session_state.screenshot_bytes = (
+                new_screenshot
+            )
+
+            st.session_state.screenshot_type = (
+                screenshot.type
+            )
+
+            st.session_state.analysis = None
+            st.session_state.analysed_trade = None
+            st.session_state.trade_saved = False
 
 
     # =====================================================
@@ -321,7 +418,10 @@ if page == "Trade Analysis":
 
     direction = st.selectbox(
         "Trade Direction",
-        ["Buy", "Sell"],
+        [
+            "Buy",
+            "Sell"
+        ],
         key="direction"
     )
 
@@ -363,7 +463,9 @@ if page == "Trade Analysis":
     # STRATEGY CONTEXT
     # =====================================================
 
-    st.subheader("Strategy Context")
+    st.subheader(
+        "Strategy Context"
+    )
 
     trading_session = st.selectbox(
         "Trading Session",
@@ -465,7 +567,9 @@ if page == "Trade Analysis":
 
     reason = st.text_area(
         "Why did you take this trade?",
-        placeholder="Explain your reason for entering this trade...",
+        placeholder=(
+            "Explain your reason for entering this trade..."
+        ),
         key="reason"
     )
 
@@ -479,7 +583,9 @@ if page == "Trade Analysis":
     # ANALYSE TRADE
     # =====================================================
 
-    if st.button("🔍 Analyse Trade"):
+    if st.button(
+        "🔍 Analyse Trade"
+    ):
 
         if st.session_state.screenshot_bytes is None:
 
@@ -513,33 +619,56 @@ if page == "Trade Analysis":
                 "TP must be below Entry."
             )
 
+        elif st.session_state.analysis_running:
+
+            st.info(
+                "Your trade is already being analysed."
+            )
+
         else:
 
-            with st.spinner(
-                "AI is analysing your trade..."
-            ):
+            st.session_state.analysis_running = True
 
-                try:
+            try:
 
-                    image_base64 = base64.b64encode(
+                # =================================================
+                # PREPARE IMAGE
+                # =================================================
+
+                prepared_image = (
+                    prepare_trade_image(
                         st.session_state.screenshot_bytes
-                    ).decode("utf-8")
-
-                    image_data = (
-                        f"data:{st.session_state.screenshot_type};"
-                        f"base64,{image_base64}"
                     )
+                )
 
-                    prompt = build_mentor_prompt(
-                        direction=direction,
-                        entry=entry,
-                        sl=sl,
-                        tp=tp,
-                        timeframe=timeframe,
-                        reason=reason
+                image_base64 = (
+                    base64.b64encode(
+                        prepared_image
+                    ).decode(
+                        "utf-8"
                     )
+                )
 
-                    prompt += f"""
+                image_data = (
+                    "data:image/jpeg;base64,"
+                    + image_base64
+                )
+
+
+                # =================================================
+                # BUILD PROMPT
+                # =================================================
+
+                prompt = build_mentor_prompt(
+                    direction=direction,
+                    entry=entry,
+                    sl=sl,
+                    tp=tp,
+                    timeframe=timeframe,
+                    reason=reason
+                )
+
+                prompt += f"""
 
 TRADER-PROVIDED STRATEGY CONTEXT
 
@@ -578,6 +707,41 @@ say that it cannot be verified.
 Do not invent missing market information.
 """
 
+
+                # =================================================
+                # UNIQUE REQUEST ID
+                # =================================================
+
+                request_key = hashlib.sha256(
+                    (
+                        st.session_state.screenshot_bytes
+                        + prompt.encode("utf-8")
+                    )
+                ).hexdigest()
+
+
+                # =================================================
+                # CACHE CHECK
+                # =================================================
+
+                cached_analysis = (
+                    st.session_state.analysis_cache.get(
+                        request_key
+                    )
+                )
+
+                if cached_analysis:
+
+                    analysis_text = (
+                        cached_analysis
+                    )
+
+                else:
+
+                    # =================================================
+                    # OPENAI REQUEST
+                    # =================================================
+
                     response = call_openai_with_retry(
                         input_data=[
                             {
@@ -594,55 +758,89 @@ Do not invent missing market information.
                                 ]
                             }
                         ],
-                        max_output_tokens=2500
+                        max_output_tokens=1000,
+                        max_retries=6
                     )
 
-                    st.session_state.analysis = (
+                    analysis_text = (
                         response.output_text
                     )
 
-                    st.session_state.analysed_trade = {
+                    # Save completed result
+                    st.session_state.analysis_cache[
+                        request_key
+                    ] = analysis_text
 
-                        "direction": direction,
 
-                        "entry": entry,
+                # =================================================
+                # SAVE ANALYSIS
+                # =================================================
 
-                        "stop_loss": sl,
+                st.session_state.analysis = (
+                    analysis_text
+                )
 
-                        "take_profit": tp,
+                st.session_state.analysed_trade = {
 
-                        "timeframe": timeframe,
+                    "direction":
+                        direction,
 
-                        "reason": reason
-                    }
+                    "entry":
+                        entry,
 
-                    st.session_state.trade_saved = False
+                    "stop_loss":
+                        sl,
 
-                    st.success(
-                        "✅ Trade analysed successfully."
+                    "take_profit":
+                        tp,
+
+                    "timeframe":
+                        timeframe,
+
+                    "reason":
+                        reason
+                }
+
+                st.session_state.trade_saved = False
+
+                st.success(
+                    "✅ Trade analysed successfully."
+                )
+
+
+            except RuntimeError as e:
+
+                if str(e) == (
+                    "AI_SERVICE_TEMPORARILY_UNAVAILABLE"
+                ):
+
+                    # IMPORTANT:
+                    # Do NOT show 429 / rate-limit terminology.
+
+                    st.error(
+                        "AI analysis is temporarily unavailable. "
+                        "Your trade details are still safe. "
+                        "Please try again shortly."
                     )
 
-                except Exception as e:
+                else:
 
-                    error_text = str(e).lower()
+                    st.error(
+                        "AI analysis could not be completed. "
+                        "Please try again."
+                    )
 
-                    if (
-                        "429" in error_text
-                        or "rate_limit" in error_text
-                        or "rate limit" in error_text
-                    ):
 
-                        st.warning(
-                            "⚠️ AI is temporarily busy. "
-                            "Please wait a little and try again."
-                        )
+            except Exception:
 
-                    else:
+                st.error(
+                    "AI analysis could not be completed. "
+                    "Please try again."
+                )
 
-                        st.error(
-                            "AI analysis could not be completed. "
-                            "Please try again."
-                        )
+            finally:
+
+                st.session_state.analysis_running = False
 
 
     # =====================================================
@@ -684,7 +882,10 @@ Do not invent missing market information.
                     "This trade is already saved."
                 )
 
-            elif st.session_state.analysed_trade is None:
+            elif (
+                st.session_state.analysed_trade
+                is None
+            ):
 
                 st.error(
                     "Please analyse the trade again before saving."
@@ -751,7 +952,9 @@ Do not invent missing market information.
 
 elif page == "Trade Journal":
 
-    st.title("📖 Trade Journal")
+    st.title(
+        "📖 Trade Journal"
+    )
 
     st.caption(
         "Your saved trades and AI reviews"
@@ -764,7 +967,7 @@ elif page == "Trade Journal":
     except Exception as e:
 
         st.error(
-            f"Could not load journal: {str(e)}"
+            "Could not load journal."
         )
 
         st.stop()
@@ -781,7 +984,6 @@ elif page == "Trade Journal":
             f"Total Trades: {len(trades)}"
         )
 
-        # Latest trade first
         for i, trade in enumerate(
             reversed(trades),
             start=1
@@ -836,14 +1038,14 @@ elif page == "Trade Journal":
             )
 
             with st.expander(
-                f"Trade {i} — {direction} — {timeframe}"
+                f"Trade {i} — "
+                f"{direction} — "
+                f"{timeframe}"
             ):
 
-                # -----------------------------------------
-                # DETAILS
-                # -----------------------------------------
-
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4 = (
+                    st.columns(4)
+                )
 
                 with col1:
 
@@ -936,7 +1138,7 @@ elif page == "Trade Journal":
 
 
                 # -----------------------------------------
-                # DELETE TRADE
+                # DELETE
                 # -----------------------------------------
 
                 st.divider()
@@ -978,7 +1180,9 @@ elif page == "Trade Journal":
                             "this trade and its screenshot?"
                         )
 
-                        confirm_col1, confirm_col2 = st.columns(2)
+                        confirm_col1, confirm_col2 = (
+                            st.columns(2)
+                        )
 
                         with confirm_col1:
 
@@ -994,21 +1198,21 @@ elif page == "Trade Journal":
                                         screenshot_url
                                     )
 
-                                    st.success(
-                                        "Trade deleted successfully."
-                                    )
-
                                     st.session_state.pop(
                                         confirm_key,
                                         None
                                     )
 
+                                    st.success(
+                                        "Trade deleted successfully."
+                                    )
+
                                     st.rerun()
 
-                                except Exception as e:
+                                except Exception:
 
                                     st.error(
-                                        f"Failed to delete trade: {str(e)}"
+                                        "Failed to delete trade."
                                     )
 
                         with confirm_col2:
@@ -1028,7 +1232,8 @@ elif page == "Trade Journal":
                 else:
 
                     st.warning(
-                        "This trade has no database ID, so it cannot be deleted."
+                        "This trade has no database ID, "
+                        "so it cannot be deleted."
                     )
 
 
@@ -1050,10 +1255,10 @@ elif page == "Dashboard":
 
         trades = get_trades()
 
-    except Exception as e:
+    except Exception:
 
         st.error(
-            f"Could not load dashboard: {str(e)}"
+            "Could not load dashboard."
         )
 
         st.stop()
@@ -1071,7 +1276,9 @@ elif page == "Dashboard":
     # BASIC STATISTICS
     # =====================================================
 
-    total_trades = len(trades)
+    total_trades = len(
+        trades
+    )
 
     sell_trades = sum(
         1
@@ -1106,7 +1313,9 @@ elif page == "Dashboard":
     # METRICS
     # =====================================================
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = (
+        st.columns(4)
+    )
 
     with col1:
 
@@ -1204,10 +1413,14 @@ elif page == "Dashboard":
         )
 
         with st.expander(
-            f"Trade {index} — {direction} — {timeframe}"
+            f"Trade {index} — "
+            f"{direction} — "
+            f"{timeframe}"
         ):
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4 = (
+                st.columns(4)
+            )
 
             with col1:
 
@@ -1307,7 +1520,9 @@ elif page == "Dashboard":
                 rr_below_one_count += 1
 
 
-    col1, col2 = st.columns(2)
+    col1, col2 = (
+        st.columns(2)
+    )
 
     with col1:
 
@@ -1335,54 +1550,101 @@ elif page == "Dashboard":
     )
 
     st.caption(
-        "AI compares your saved trades and identifies repeated trading patterns."
+        "AI compares your saved trades and identifies "
+        "repeated trading patterns."
     )
+
+    # Create fingerprint for current journal
+    journal_fingerprint = hashlib.sha256(
+        str(
+            [
+                (
+                    trade.get("id"),
+                    trade.get("ai_review", "")
+                )
+                for trade in trades
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
+
 
     if st.button(
         "🔍 Analyse Repeated Trading Patterns"
     ):
 
-        with st.spinner(
-            "AI is analysing your trading journal..."
-        ):
+        try:
 
-            try:
+            # ---------------------------------------------
+            # USE CACHE IF JOURNAL HAS NOT CHANGED
+            # ---------------------------------------------
 
-                pattern_prompt = (
-                    build_pattern_analysis_prompt(
-                        trades
-                    )
+            cached_pattern = (
+                st.session_state.pattern_cache.get(
+                    journal_fingerprint
                 )
+            )
 
-                pattern_response = call_openai_with_retry(
-                    input_data=pattern_prompt,
-                    max_output_tokens=1800
-                )
+            if cached_pattern:
 
                 st.session_state.pattern_analysis = (
-                    pattern_response.output_text
+                    cached_pattern
                 )
 
-            except Exception as e:
+            else:
 
-                error_text = str(e).lower()
-
-                if (
-                    "429" in error_text
-                    or "rate_limit" in error_text
-                    or "rate limit" in error_text
+                with st.spinner(
+                    "AI is analysing your trading journal..."
                 ):
 
-                    st.warning(
-                        "⚠️ AI is temporarily busy. "
-                        "Please wait a little and try again."
+                    pattern_prompt = (
+                        build_pattern_analysis_prompt(
+                            trades
+                        )
                     )
 
-                else:
-
-                    st.error(
-                        "AI pattern analysis could not be completed."
+                    pattern_response = (
+                        call_openai_with_retry(
+                            input_data=pattern_prompt,
+                            max_output_tokens=700,
+                            max_retries=6
+                        )
                     )
+
+                    pattern_text = (
+                        pattern_response.output_text
+                    )
+
+                    st.session_state.pattern_analysis = (
+                        pattern_text
+                    )
+
+                    st.session_state.pattern_cache[
+                        journal_fingerprint
+                    ] = pattern_text
+
+
+        except RuntimeError as e:
+
+            if str(e) == (
+                "AI_SERVICE_TEMPORARILY_UNAVAILABLE"
+            ):
+
+                st.error(
+                    "AI analysis is temporarily unavailable. "
+                    "Please try again shortly."
+                )
+
+            else:
+
+                st.error(
+                    "AI pattern analysis could not be completed."
+                )
+
+        except Exception:
+
+            st.error(
+                "AI pattern analysis could not be completed."
+            )
 
 
     if st.session_state.pattern_analysis:
