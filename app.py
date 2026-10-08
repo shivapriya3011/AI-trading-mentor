@@ -52,7 +52,7 @@ def prepare_trade_image(image_bytes):
 
 
 # =========================================================
-# GEMINI SAFE REQUEST WITH RETRY (UPDATED TO GEMINI-3.8-FLASH)
+# GEMINI SAFE REQUEST WITH RETRY (ROBUST MODEL FALLBACK)
 # =========================================================
 
 def call_gemini_with_retry(
@@ -60,11 +60,11 @@ def call_gemini_with_retry(
     max_retries=3
 ):
     """
-    Safely call Gemini API using the new google-genai client.
-    Updated with gemini-3.8-flash model as requested by the API.
+    Safely call Gemini API using the new google-genai client with proper fallbacks.
     """
     models_to_try = [
-        "gemini-3.8-flash"
+        "gemini-2.5-flash",
+        "gemini-1.5-flash"
     ]
     
     last_error = None
@@ -87,7 +87,7 @@ def call_gemini_with_retry(
                     err in error_text for err in [
                         "503", "unavailable", "overloaded", 
                         "resource_exhausted", "rate limit", 
-                        "too many requests", "deadline_exceeded"
+                        "too many requests", "deadline_exceeded", "404"
                     ]
                 )
 
