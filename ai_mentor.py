@@ -1,6 +1,5 @@
 from strategy_rules import STRATEGY_RULES
 
-
 TRADER_REQUIREMENT = """
 You are an AI Trading Mentor for an intermediate XAUUSD trader.
 
@@ -29,7 +28,6 @@ IMPORTANT:
 - Do not predict future price movement with certainty.
 """
 
-
 def build_mentor_prompt(
     direction,
     entry,
@@ -38,7 +36,6 @@ def build_mentor_prompt(
     timeframe,
     reason
 ):
-
     prompt = f"""
 You are analysing an executed XAUUSD trade for an AI Trading Mentor.
 
@@ -266,12 +263,10 @@ If evidence is insufficient, say:
 
 ==================================================
 """
-
     return prompt
 
 
 def build_pattern_analysis_prompt(trades):
-
     prompt = f"""
 You are an AI Trading Mentor analysing the trader's
 saved XAUUSD trading journal.
@@ -473,5 +468,4 @@ NEXT IMPROVEMENT:
 
 ==================================================
 """
-
     return prompt
