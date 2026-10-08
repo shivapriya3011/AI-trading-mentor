@@ -1,22 +1,38 @@
-import os
 from datetime import datetime
-
-from supabase import create_client, Client
+import os
+import streamlit as str_lit
+from supabase import Client, create_client
 from dotenv import load_dotenv
 
-
 # =========================================================
-# LOAD ENVIRONMENT VARIABLES
+# LOAD ENVIRONMENT VARIABLES / SECRETS
 # =========================================================
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = None
+SUPABASE_KEY = None
+
+# Try loading from Streamlit secrets first (for cloud deployment)
+try:
+    if "SUPABASE_URL" in str_lit.secrets:
+        SUPABASE_URL = str_lit.secrets["SUPABASE_URL"]
+    if "SUPABASE_KEY" in str_lit.secrets:
+        SUPABASE_KEY = str_lit.secrets["SUPABASE_KEY"]
+except Exception:
+    pass
+
+# Fallback to local .env variables if not found in Streamlit secrets
+if not SUPABASE_URL:
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+if not SUPABASE_KEY:
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+SUPABASE_URL = SUPABASE_URL.rstrip("/")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError(
-        "SUPABASE_URL or SUPABASE_KEY is missing in .env"
+        "SUPABASE_URL or SUPABASE_KEY is missing in environment or Streamlit secrets."
     )
 
 supabase: Client = create_client(
@@ -45,7 +61,6 @@ def save_trade(
     Save trade details to Supabase database
     and screenshot to Supabase Storage.
     """
-
     screenshot_url = None
 
     # -----------------------------------------------------
@@ -53,7 +68,6 @@ def save_trade(
     # -----------------------------------------------------
 
     if screenshot_bytes:
-
         timestamp = datetime.now().strftime(
             "%Y%m%d_%H%M%S_%f"
         )
@@ -121,7 +135,6 @@ def save_trade(
 # =========================================================
 
 def get_trades():
-
     response = (
         supabase
         .table("trades")
@@ -154,9 +167,7 @@ def delete_trade(
     # -----------------------------------------------------
 
     if screenshot_url:
-
         try:
-            # Get filename from screenshot URL
             filename = screenshot_url.rstrip("/").split("/")[-1]
 
             if filename:
@@ -165,8 +176,6 @@ def delete_trade(
                     .remove([filename])
 
         except Exception:
-            # Even if screenshot deletion fails,
-            # continue deleting the database record.
             pass
 
     # -----------------------------------------------------
