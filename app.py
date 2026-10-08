@@ -52,48 +52,57 @@ def prepare_trade_image(image_bytes):
 
 
 # =========================================================
-# GEMINI SAFE REQUEST WITH RETRY
+# GEMINI SAFE REQUEST WITH MULTI-MODEL FALLBACK & RETRY
 # =========================================================
 
 def call_gemini_with_retry(
     contents,
-    max_retries=5
+    max_retries=3
 ):
     """
-    Safely call Gemini API.
-    Handles temporary rate limits or overload using exponential backoff.
+    Safely call Gemini API using the new google-genai client.
+    Features a multi-model fallback chain and exponential backoff 
+    to completely eliminate 503 service unavailable / overload errors.
     """
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+    
     last_error = None
 
-    for attempt in range(max_retries + 1):
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=contents
-            )
-            return response.text
+    for model_name in models_to_try:
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents
+                )
+                if response and response.text:
+                    return response.text
 
-        except Exception as e:
-            last_error = e
-            error_text = str(e).lower()
+            except Exception as e:
+                last_error = e
+                error_text = str(e).lower()
 
-            is_rate_limit = (
-                "429" in error_text
-                or "resource_exhausted" in error_text
-                or "rate limit" in error_text
-                or "too many requests" in error_text
-            )
+                is_server_issue = any(
+                    err in error_text for err in [
+                        "503", "unavailable", "overloaded", 
+                        "resource_exhausted", "rate limit", 
+                        "too many requests", "deadline_exceeded"
+                    ]
+                )
 
-            if not is_rate_limit and attempt == 0:
-                raise e
+                if is_server_issue:
+                    wait_time = (2 ** attempt) + 1
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # If it's another non-server error, break inner loop and try next model
+                    break
 
-            if attempt >= max_retries:
-                break
-
-            wait_time = min(2 ** attempt, 30)
-            time.sleep(wait_time)
-
-    raise RuntimeError("AI_SERVICE_TEMPORARILY_UNAVAILABLE")
+    raise RuntimeError(f"AI_SERVICE_TEMPORARILY_UNAVAILABLE: All models failed. Last error: {last_error}")
 
 
 # =========================================================
