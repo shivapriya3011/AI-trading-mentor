@@ -1,5 +1,5 @@
 streamlit
-openai
-python-dotenv
 pillow
+google-genai
+python-dotenv
 supabase
