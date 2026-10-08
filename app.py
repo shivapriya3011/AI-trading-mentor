@@ -52,7 +52,7 @@ def prepare_trade_image(image_bytes):
 
 
 # =========================================================
-# GEMINI SAFE REQUEST WITH RETRY (FIXED FOR ACTIVE MODELS)
+# GEMINI SAFE REQUEST WITH RETRY (UPDATED TO GEMINI-3.8-FLASH)
 # =========================================================
 
 def call_gemini_with_retry(
@@ -61,10 +61,10 @@ def call_gemini_with_retry(
 ):
     """
     Safely call Gemini API using the new google-genai client.
-    Updated with active model name to completely eliminate 404 / 503 errors.
+    Updated with gemini-3.8-flash model as requested by the API.
     """
     models_to_try = [
-        "gemini-2.5-flash"
+        "gemini-3.8-flash"
     ]
     
     last_error = None
