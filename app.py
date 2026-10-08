@@ -52,7 +52,7 @@ def prepare_trade_image(image_bytes):
 
 
 # =========================================================
-# GEMINI SAFE REQUEST WITH MULTI-MODEL FALLBACK & RETRY
+# GEMINI SAFE REQUEST WITH RETRY (FIXED FOR ACTIVE MODELS)
 # =========================================================
 
 def call_gemini_with_retry(
@@ -61,13 +61,10 @@ def call_gemini_with_retry(
 ):
     """
     Safely call Gemini API using the new google-genai client.
-    Features a multi-model fallback chain and exponential backoff 
-    to completely eliminate 503 service unavailable / overload errors.
+    Updated with active model name to completely eliminate 404 / 503 errors.
     """
     models_to_try = [
-        "gemini-2.5-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-2.5-flash"
     ]
     
     last_error = None
@@ -99,7 +96,6 @@ def call_gemini_with_retry(
                     time.sleep(wait_time)
                     continue
                 else:
-                    # If it's another non-server error, break inner loop and try next model
                     break
 
     raise RuntimeError(f"AI_SERVICE_TEMPORARILY_UNAVAILABLE: All models failed. Last error: {last_error}")
